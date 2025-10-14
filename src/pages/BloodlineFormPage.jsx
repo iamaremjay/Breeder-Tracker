@@ -21,7 +21,12 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         winsLossesWinRate: '',
         fightingStyle: '',
         sireDamWingbands: '',
-        description: ''
+        description: '',
+        penNo: '',
+        markings: '',
+        batchNo: '',
+        batchCount: '',
+        casualty: ''
     });
 
     const [imagePreview, setImagePreview] = useState(bloodline?.image || null);
@@ -57,10 +62,10 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
 
         if (step === 1) {
             if (!formData.wingbandNumber.trim()) {
-                errors.wingbandNumber = 'Wingband number is required';
+                errors.wingbandNumber = 'Leg Band / Wing Band is required';
             }
             if (formData.wingbandNumber.length > 50) {
-                errors.wingbandNumber = 'Wingband number is too long';
+                errors.wingbandNumber = 'Leg Band / Wing Band is too long';
             }
         }
 
@@ -110,26 +115,106 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         }
     };
 
-    const processImageFile = (file) => {
+    // 🆕 NEW: Compress image before storing
+    const compressImage = (file, maxWidth = 1200, quality = 0.85) => {
+        return new Promise((resolve, reject) => {
+            if (!file.type.startsWith('image/')) {
+                reject(new Error('Not an image file'));
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    // Resize if too large (maintain aspect ratio)
+                    if (width > maxWidth || height > maxWidth) {
+                        if (width > height) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        } else {
+                            width = Math.round((width * maxWidth) / height);
+                            height = maxWidth;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Convert to blob
+                    canvas.toBlob(
+                        (blob) => {
+                            if (blob) {
+                                const compressedFile = new File([blob], file.name, {
+                                    type: 'image/jpeg',
+                                    lastModified: Date.now()
+                                });
+                                resolve(compressedFile);
+                            } else {
+                                reject(new Error('Canvas to Blob conversion failed'));
+                            }
+                        },
+                        'image/jpeg',
+                        quality
+                    );
+                };
+
+                img.onerror = () => reject(new Error('Image load failed'));
+            };
+
+            reader.onerror = () => reject(new Error('FileReader error'));
+        });
+    };
+
+    // 🔧 UPDATED: Process with compression
+    const processImageFile = async (file) => {
         if (!file.type.startsWith('image/')) {
             setError('Please select a valid image file');
             return;
         }
 
-        if (file.size > 5 * 1024 * 1024) {
-            setError('Image size must be less than 5MB');
+        if (file.size > 10 * 1024 * 1024) {
+            setError('Image size must be less than 10MB');
             return;
         }
 
         setFileName(file.name);
-        setImageFile(file);
-        setError('');
+        setError('Compressing image...');
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setImagePreview(reader.result);
-        };
-        reader.readAsDataURL(file);
+        try {
+            // Compress the image
+            const compressedFile = await compressImage(file);
+
+            const originalSizeKB = (file.size / 1024).toFixed(2);
+            const compressedSizeKB = (compressedFile.size / 1024).toFixed(2);
+
+            console.log(`📦 Original: ${originalSizeKB}KB → Compressed: ${compressedSizeKB}KB`);
+
+            setImageFile(compressedFile);
+            setError('');
+
+            // Show preview
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImagePreview(reader.result);
+            };
+            reader.readAsDataURL(compressedFile);
+
+        } catch (err) {
+            console.error('❌ Compression failed:', err);
+            setError('Failed to process image: ' + err.message);
+        }
     };
 
     const handleBack = () => {
@@ -139,7 +224,7 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
     const uploadImage = async (file, wingbandNumber) => {
         try {
             const timestamp = Date.now();
-            const fileExtension = file.name.split('.').pop();
+            const fileExtension = 'jpg'; // Always jpg after compression
             const fileName = `bloodlines/${userId}/${wingbandNumber}_${timestamp}.${fileExtension}`;
             const storageRef = ref(storage, fileName);
             await uploadBytes(storageRef, file);
@@ -174,18 +259,15 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         try {
             let imageUrl = formData.image || '';
 
-            // Upload image if there's a new one
             if (imageFile) {
-                console.log('📤 Uploading image...');
+                console.log('📤 Uploading compressed image...');
                 try {
                     imageUrl = await uploadImage(imageFile, formData.wingbandNumber);
                     console.log('✅ Image uploaded successfully:', imageUrl);
                 } catch (uploadError) {
-                    console.error('❌ Image upload failed (CORS issue):', uploadError);
-                    // Show warning but continue saving without image
-                    setError('⚠️ Image upload failed due to CORS. Saving without image...');
+                    console.error('❌ Image upload failed:', uploadError);
+                    setError('⚠️ Image upload failed. Saving without image...');
                     imageUrl = '';
-                    // Clear error after 3 seconds
                     setTimeout(() => setError(''), 3000);
                 }
             }
@@ -205,10 +287,17 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                 fightingStyle: formData.fightingStyle,
                 sireDamWingbands: formData.sireDamWingbands,
                 description: formData.description,
-                image: imageUrl
+                penNo: formData.penNo,
+                markings: formData.markings,
+                batchNo: formData.batchNo,
+                batchCount: formData.batchCount,
+                casualty: formData.casualty,
+                image: imageUrl,
+                createdAt: bloodline?.createdAt || Date.now(),
+                updatedAt: Date.now()
             };
 
-            console.log('💾 Saving bloodline to Firestore...', bloodlineData);
+            console.log('💾 Saving bloodline to Firestore...');
 
             const result = await saveBloodline(userId, bloodlineData);
 
@@ -218,7 +307,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                 console.log('✅ Bloodline saved successfully!');
                 setIsSaving(false);
 
-                // Call onSave callback
                 if (onSave) {
                     console.log('📢 Calling onSave callback');
                     onSave(bloodlineData);
@@ -232,13 +320,7 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
             }
         } catch (err) {
             console.error('❌ Exception caught:', err);
-            console.error('Error details:', {
-                message: err.message,
-                code: err.code,
-                stack: err.stack
-            });
 
-            // Show user-friendly error message
             let errorMessage = 'Failed to save bloodline. ';
 
             if (err.message.includes('permission')) {
@@ -277,29 +359,18 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="flex flex-col gap-3 sm:gap-4 mb-4 sm:mb-6">
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 mb-1 sm:mb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full">
+                        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900">
                             {bloodline ? 'Edit Bloodline' : 'Add New Bloodline'}
                         </h1>
-                        <p className="text-xs sm:text-sm lg:text-base text-slate-600">Step {currentStep} of 3</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                        <button onClick={handleBack} disabled={isSaving} className="flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg sm:rounded-xl border border-slate-200 transition-all transform hover:scale-105 active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
-                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            <span className="hidden xs:inline">Back</span>
-                        </button>
-                        <button onClick={handleLogout} disabled={isSaving} className="flex items-center gap-2 px-4 sm:px-6 py-2 sm:py-3 bg-red-50 hover:bg-red-100 text-red-700 font-semibold rounded-lg sm:rounded-xl border border-red-200 transition-all transform hover:scale-105 active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
-                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>
-                            <span className="hidden xs:inline">Logout</span>
+                        <button onClick={handleLogout} disabled={isSaving} className="px-6 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                            Logout
                         </button>
                     </div>
+                    <p className="text-xs sm:text-sm lg:text-base text-slate-600 mt-1 sm:mt-2">Step {currentStep} of 3</p>
                 </div>
 
-                {/* Progress Steps - Mobile Optimized */}
+                {/* Progress Steps */}
                 <div className="mb-4 sm:mb-6 lg:mb-8 bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-3 sm:p-4 lg:p-6 overflow-x-auto">
                     <div className="flex items-center justify-between min-w-[600px] sm:min-w-0">
                         <div className="flex-1 flex items-center">
@@ -352,8 +423,8 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6">Basic Information</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                 <div className="sm:col-span-2">
-                                    <label className={labelClass}>Wingband Number *</label>
-                                    <input type="text" name="wingbandNumber" value={formData.wingbandNumber} onChange={handleInputChange} placeholder="e.g., WD-000001" className={inputClass} disabled={isSaving || !!bloodline} required />
+                                    <label className={labelClass}>Leg Band / Wing Band *</label>
+                                    <input type="text" name="wingbandNumber" value={formData.wingbandNumber} onChange={handleInputChange} placeholder="e.g., WB-000001" className={inputClass} disabled={isSaving || !!bloodline} required />
                                     {validationErrors.wingbandNumber && <p className={errorClass}>{validationErrors.wingbandNumber}</p>}
                                 </div>
 
@@ -372,7 +443,7 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                                     <select name="typeOrCross" value={formData.typeOrCross} onChange={handleInputChange} className={inputClass} disabled={isSaving}>
                                         <option value="">Select type</option>
                                         <option value="Cross">Cross</option>
-                                        <option value="Purebred">Purebred</option>
+                                        <option value="Pure">Pure</option>
                                         <option value="Hybrid">Hybrid</option>
                                     </select>
                                 </div>
@@ -386,6 +457,36 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                                     <label className={labelClass}>Origin / Farm</label>
                                     <input type="text" name="origin" value={formData.origin} onChange={handleInputChange} placeholder="Farm or breeder name" className={inputClass} disabled={isSaving} />
                                 </div>
+
+                                <div>
+                                    <label className={labelClass}>Pen No.</label>
+                                    <input type="text" name="penNo" value={formData.penNo} onChange={handleInputChange} placeholder="e.g., P-001" className={inputClass} disabled={isSaving} />
+                                </div>
+
+                                <div>
+                                    <label className={labelClass}>Markings</label>
+                                    <select name="markings" value={formData.markings} onChange={handleInputChange} className={inputClass} disabled={isSaving}>
+                                        <option value="">Select markings</option>
+                                        <option value="ROC">ROC</option>
+                                        <option value="RIC">RIC</option>
+                                        <option value="RIP">RIP</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className={labelClass}>Batch No.</label>
+                                    <input type="text" name="batchNo" value={formData.batchNo} onChange={handleInputChange} placeholder="e.g., B-2024-01" className={inputClass} disabled={isSaving} />
+                                </div>
+
+                                <div>
+                                    <label className={labelClass}>Batch Count</label>
+                                    <input type="text" name="batchCount" value={formData.batchCount} onChange={handleNumberInput} placeholder="e.g., 50" className={inputClass} disabled={isSaving} />
+                                </div>
+
+                                <div className="sm:col-span-2">
+                                    <label className={labelClass}>Casualty</label>
+                                    <input type="text" name="casualty" value={formData.casualty} onChange={handleInputChange} placeholder="Notes about casualties or losses" className={inputClass} disabled={isSaving} />
+                                </div>
                             </div>
                         </div>
                     )}
@@ -396,19 +497,13 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6">Bloodline Details</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                 <div>
-                                    <label className={labelClass}>Sire (Father's Breed)</label>
-                                    <input type="text" name="sire" value={formData.sire} onChange={handleInputChange} placeholder="e.g., Kelso" className={inputClass} disabled={isSaving} />
+                                    <label className={labelClass}>Brood Stag</label>
+                                    <input type="text" name="sire" value={formData.sire} onChange={handleInputChange} placeholder="Wingband number" className={inputClass} disabled={isSaving} />
                                 </div>
 
                                 <div>
-                                    <label className={labelClass}>Dam (Mother's Breed)</label>
-                                    <input type="text" name="dam" value={formData.dam} onChange={handleInputChange} placeholder="e.g., Roundhead" className={inputClass} disabled={isSaving} />
-                                </div>
-
-                                <div className="sm:col-span-2">
-                                    <label className={labelClass}>Sire / Dam Wingbands</label>
-                                    <input type="text" name="sireDamWingbands" value={formData.sireDamWingbands} onChange={handleInputChange} placeholder="e.g., WD-000010 / WD-000020" className={inputClass} disabled={isSaving} />
-                                    <p className="text-xs text-slate-500 mt-1">Format: Sire Wingband / Dam Wingband</p>
+                                    <label className={labelClass}>Brood Hen</label>
+                                    <input type="text" name="dam" value={formData.dam} onChange={handleInputChange} placeholder="Wingband number" className={inputClass} disabled={isSaving} />
                                 </div>
 
                                 <div>
@@ -470,6 +565,7 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                                                 </svg>
                                                 <p className="font-medium text-center text-xs sm:text-sm">Drag & drop image here</p>
                                                 <p className="text-xs text-center mt-1">or click to browse</p>
+                                                <p className="text-xs text-center mt-1 text-violet-600 font-semibold">✨ Auto-compressed to save space</p>
                                             </div>
                                         )}
                                     </div>
@@ -485,125 +581,73 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
 
                                     <label className="block mt-3">
                                         <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isSaving} className="hidden" />
-                                        <div className="w-full px-4 py-2.5 sm:px-6 sm:py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-semibold rounded-lg sm:rounded-xl text-center cursor-pointer transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 text-sm sm:text-base">
-                                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                            </svg>
-                                            Browse Files
+                                        <div className="w-full px-4 py-2.5 sm:px-6 sm:py-3 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm text-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                                            Choose Image
                                         </div>
                                     </label>
-                                    <p className="text-xs text-slate-500 text-center mt-2">Max size: 5MB • Formats: JPG, PNG, WebP</p>
                                 </div>
 
-                                {/* Performance Stats */}
+                                {/* Performance Stats Section */}
                                 <div className="space-y-4 sm:space-y-6">
                                     <div>
                                         <label className={labelClass}>Wins</label>
-                                        <div className="relative">
-                                            <input type="text" name="wins" value={formData.wins} onChange={handleNumberInput} placeholder="0" className={inputClass} disabled={isSaving} />
-                                            <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 bg-emerald-100 rounded-lg">
-                                                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                                </svg>
-                                            </div>
-                                        </div>
+                                        <input type="text" name="wins" value={formData.wins} onChange={handleNumberInput} placeholder="Number of wins" className={inputClass} disabled={isSaving} />
                                     </div>
 
                                     <div>
                                         <label className={labelClass}>Losses</label>
-                                        <div className="relative">
-                                            <input type="text" name="losses" value={formData.losses} onChange={handleNumberInput} placeholder="0" className={inputClass} disabled={isSaving} />
-                                            <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 bg-red-100 rounded-lg">
-                                                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                                </svg>
-                                            </div>
-                                        </div>
+                                        <input type="text" name="losses" value={formData.losses} onChange={handleNumberInput} placeholder="Number of losses" className={inputClass} disabled={isSaving} />
                                     </div>
 
                                     <div>
-                                        <label className={labelClass}>Win / Loss / Win Rate (Auto-calculated)</label>
-                                        <div className="relative">
-                                            <div className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-gradient-to-br from-violet-50 to-purple-50 border-2 border-violet-200 rounded-lg sm:rounded-xl font-semibold text-slate-900 flex items-center justify-between text-xs sm:text-sm">
-                                                <span className="truncate">{formData.winsLossesWinRate || 'Enter wins and losses'}</span>
-                                                {formData.winsLossesWinRate && (
-                                                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                                                        {parseInt(formData.winsLossesWinRate.split('/')[2]) >= 70 ? (
-                                                            <span className="text-xl sm:text-2xl">🏆</span>
-                                                        ) : parseInt(formData.winsLossesWinRate.split('/')[2]) >= 50 ? (
-                                                            <span className="text-xl sm:text-2xl">⭐</span>
-                                                        ) : (
-                                                            <span className="text-xl sm:text-2xl">📊</span>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <label className={labelClass}>Win Rate (Auto-calculated)</label>
+                                        <input type="text" name="winsLossesWinRate" value={formData.winsLossesWinRate} readOnly placeholder="Wins / Losses / Win%" className={`${inputClass} bg-slate-100 cursor-not-allowed`} disabled />
+                                        <p className="text-xs text-slate-500 mt-1">Format: Wins / Losses / Win Rate %</p>
                                     </div>
-
-                                    {formData.winsLossesWinRate && (
-                                        <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-slate-200">
-                                            <h4 className="font-bold text-slate-700 mb-2 sm:mb-3 text-xs sm:text-sm">Performance Preview</h4>
-                                            <div className="space-y-2">
-                                                <div>
-                                                    <div className="flex justify-between text-xs mb-1">
-                                                        <span className="text-slate-600">Win Rate</span>
-                                                        <span className="font-bold text-violet-600">{formData.winsLossesWinRate.split('/')[2]?.trim() || '0%'}</span>
-                                                    </div>
-                                                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                                                        <div className="bg-gradient-to-r from-violet-500 to-purple-500 h-full transition-all duration-500" style={{ width: formData.winsLossesWinRate.split('/')[2]?.trim() || '0%' }}></div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* Navigation Buttons */}
-                <div className="flex justify-between items-center">
-                    {currentStep > 1 ? (
-                        <button onClick={handlePrevStep} disabled={isSaving} className="px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
-                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                            </svg>
-                            <span className="hidden xs:inline">Previous</span>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
+                    <div className="flex gap-3 sm:gap-4">
+                        {currentStep > 1 && (
+                            <button onClick={handlePrevStep} disabled={isSaving} className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg sm:rounded-xl border-2 border-slate-200 transition-all transform hover:scale-105 active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                                ← Previous
+                            </button>
+                        )}
+                        <button onClick={handleBack} disabled={isSaving} className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg sm:rounded-xl border-2 border-slate-200 transition-all transform hover:scale-105 active:scale-95 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                            ✕ Cancel
                         </button>
-                    ) : (
-                        <div></div>
-                    )}
+                    </div>
 
-                    {currentStep < 3 ? (
-                        <button onClick={handleNextStep} disabled={isSaving} className="px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
-                            <span className="hidden xs:inline">Next</span>
-                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    ) : (
-                        <button onClick={handleSave} disabled={isSaving} className="px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3 lg:py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg sm:rounded-xl shadow-lg hover:shadow-emerald-500/50 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 sm:gap-3 disabled:opacity-50 disabled:cursor-not-allowed min-w-[140px] sm:min-w-[180px] text-sm sm:text-base">
-                            {isSaving ? (
-                                <>
-                                    <svg className="animate-spin w-5 h-5 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    <span className="hidden xs:inline">Saving...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    <span className="hidden xs:inline">Save Bloodline</span>
-                                    <span className="xs:hidden">Save</span>
-                                </>
-                            )}
-                        </button>
-                    )}
+                    <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 flex-1 sm:flex-initial">
+                        {currentStep < 3 ? (
+                            <button onClick={handleNextStep} disabled={isSaving} className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                                Next →
+                            </button>
+                        ) : (
+                            <button onClick={handleSave} disabled={isSaving} className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base">
+                                {isSaving ? (
+                                    <>
+                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <span>Saving...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span>Save Bloodline</span>
+                                    </>
+                                )}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

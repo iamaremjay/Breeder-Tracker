@@ -5,7 +5,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const [searchQuery, setSearchQuery] = useState('');
     const [filterType, setFilterType] = useState('All');
     const [sortBy, setSortBy] = useState('newest');
-    const [viewMode, setViewMode] = useState('table'); // table or grid
+    const [viewMode, setViewMode] = useState('grid');
     const [bloodlineData, setBloodlineData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -43,28 +43,28 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const filterAndSortBloodlines = () => {
         let filtered = [...bloodlineData];
 
-        // Filter by search query
         if (searchQuery.trim()) {
             filtered = filtered.filter(item =>
                 item.wingbandNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 item.breed?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 item.categoryName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 item.sire?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.dam?.toLowerCase().includes(searchQuery.toLowerCase())
+                item.dam?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.penNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.batchNo?.toLowerCase().includes(searchQuery.toLowerCase())
             );
         }
 
-        // Filter by type
         if (filterType !== 'All') {
             filtered = filtered.filter(item => item.typeOrCross === filterType);
         }
 
-        // Sort
         switch (sortBy) {
             case 'newest':
-                filtered.reverse();
+                filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
                 break;
             case 'oldest':
+                filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
                 break;
             case 'wingband':
                 filtered.sort((a, b) => (a.wingbandNumber || '').localeCompare(b.wingbandNumber || ''));
@@ -91,20 +91,18 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         }
 
         const csvContent = [
-            ['Wingband Number', 'Category', 'Breed', 'Sire', 'Dam', 'Type/Cross', 'Origin/Farm', 'Win Rate', 'Color', 'Comb Type'],
+            ['Leg Band / Wing Band', 'Brood Hen', 'Brood Stag', 'Pen No.', 'Markings', 'Batch No.', 'Batch Count', 'Casualty'],
             ...filteredData.map(row => [
                 row.wingbandNumber || '',
-                row.categoryName || '',
-                row.breed || '',
-                row.sire || '',
                 row.dam || '',
-                row.typeOrCross || '',
-                row.origin || '',
-                row.winsLossesWinRate || '',
-                row.color || '',
-                row.combType || ''
+                row.sire || '',
+                row.penNo || '',
+                row.markings || '',
+                row.batchNo || '',
+                row.batchCount || '',
+                row.casualty || ''
             ])
-        ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        ].map(row => row.map(cell => `\t${cell}`).join(',')).join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
@@ -140,7 +138,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const getTypeColor = (type) => {
         switch (type) {
             case 'Cross': return 'bg-violet-100 text-violet-700';
-            case 'Purebred': return 'bg-blue-100 text-blue-700';
+            case 'Pure': return 'bg-blue-100 text-blue-700';
             case 'Hybrid': return 'bg-purple-100 text-purple-700';
             default: return 'bg-gray-100 text-gray-700';
         }
@@ -157,18 +155,15 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 lg:p-6 xl:p-8">
             <div className="max-w-7xl mx-auto">
                 {/* Header Section */}
-                <div className="mb-4 sm:mb-6 lg:mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
-                    <div>
+                <div className="mb-4 sm:mb-6 lg:mb-8 flex justify-between items-start gap-3 sm:gap-4">
+                    <div className="flex-1">
                         <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold text-slate-900 mb-1 sm:mb-2">Bloodline History</h1>
                         <p className="text-slate-600 text-xs sm:text-sm lg:text-base">
                             {filteredData.length} {filteredData.length === 1 ? 'bloodline' : 'bloodlines'} found
                         </p>
                     </div>
-                    <button onClick={onLogout} className="flex items-center gap-2 px-4 py-2.5 sm:px-6 sm:py-3 bg-red-50 hover:bg-red-100 text-red-700 font-semibold rounded-lg sm:rounded-xl border border-red-200 transition-all transform hover:scale-105 active:scale-95 shadow-sm text-sm sm:text-base">
-                        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
-                        <span className="hidden xs:inline">Logout</span>
+                    <button onClick={onLogout} className="px-4 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md text-xs sm:text-base whitespace-nowrap">
+                        Logout
                     </button>
                 </div>
 
@@ -192,7 +187,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
                             </div>
-                            <input type="text" placeholder="Search by wingband, breed, category, sire, or dam..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all" />
+                            <input type="text" placeholder="Search by wingband, breed, category, sire, dam, pen no., or batch no..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all" />
                         </div>
 
                         {/* Filters & Actions */}
@@ -201,7 +196,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                 <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer">
                                     <option value="All">All Types</option>
                                     <option value="Cross">Cross</option>
-                                    <option value="Purebred">Purebred</option>
+                                    <option value="Pure">Pure</option>
                                     <option value="Hybrid">Hybrid</option>
                                 </select>
 
@@ -232,14 +227,14 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                     </svg>
-                                    <span className="hidden xs:inline">Summary</span>
+                                    <span>Summary</span>
                                 </button>
 
                                 <button onClick={handleExport} disabled={filteredData.length === 0} className="flex-1 sm:flex-none px-4 py-2 sm:px-6 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm">
                                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>
-                                    <span className="hidden xs:inline">Export</span>
+                                    <span>Export CSV</span>
                                 </button>
                             </div>
                         </div>
@@ -269,17 +264,18 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     /* Table View */
                     <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4 sm:mb-6">
                         <div className="overflow-x-auto">
-                            <table className="w-full" style={{ minWidth: '800px' }}>
+                            <table className="w-full" style={{ minWidth: '1000px' }}>
                                 <thead>
                                     <tr className="bg-gradient-to-r from-violet-50 to-purple-50 border-b border-slate-200">
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Wingband</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Category</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Breed</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Sire</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Dam</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Type</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Win Rate</th>
-                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Leg Band / Wing Band</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Brood Hen</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Brood Stag</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Pen No.</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Markings</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Batch No.</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Batch Count</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Casualty</th>
+                                        <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs font-bold text-slate-900 uppercase tracking-wider">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -288,22 +284,13 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                             <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap">
                                                 <span className="font-semibold text-slate-900 text-xs sm:text-sm">{row.wingbandNumber}</span>
                                             </td>
-                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.categoryName || '-'}</td>
-                                            <td className="px-3 py-3 sm:px-6 sm:py-4">
-                                                <span className="font-medium text-violet-700 text-xs sm:text-sm">{row.breed || '-'}</span>
-                                            </td>
-                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.sire || '-'}</td>
                                             <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.dam || '-'}</td>
-                                            <td className="px-3 py-3 sm:px-6 sm:py-4">
-                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(row.typeOrCross)}`}>
-                                                    {row.typeOrCross || 'N/A'}
-                                                </span>
-                                            </td>
-                                            <td className="px-3 py-3 sm:px-6 sm:py-4">
-                                                <span className={`font-semibold text-xs sm:text-sm ${getWinRateColor(row.winsLossesWinRate?.split('/')[2])}`}>
-                                                    {row.winsLossesWinRate || '-'}
-                                                </span>
-                                            </td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.sire || '-'}</td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.penNo || '-'}</td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.markings || '-'}</td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.batchNo || '-'}</td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.batchCount || '-'}</td>
+                                            <td className="px-3 py-3 sm:px-6 sm:py-4 text-slate-700 text-xs sm:text-sm">{row.casualty || '-'}</td>
                                             <td className="px-3 py-3 sm:px-6 sm:py-4">
                                                 <div className="flex items-center gap-1 sm:gap-2">
                                                     <button onClick={() => handleView(row)} className="p-1.5 sm:p-2 bg-violet-100 hover:bg-violet-200 text-violet-700 rounded-lg transition-all transform hover:scale-110" title="View Details">
@@ -326,47 +313,53 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         </div>
                     </div>
                 ) : (
-                    /* Grid View */
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6">
+                    /* Grid View - 6 columns */
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
                         {filteredData.map((item, index) => (
                             <div key={item.id || index} className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg transition-all transform hover:scale-105">
-                                <div className="relative h-40 sm:h-48 bg-gradient-to-br from-violet-500 to-purple-600 overflow-hidden">
+                                <div className="relative h-32 sm:h-40 bg-gradient-to-br from-violet-500 to-purple-600 overflow-hidden">
                                     <img src={item.image || 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'} alt={item.wingbandNumber} className="w-full h-full object-cover opacity-80" onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'; }} />
-                                    <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
-                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(item.typeOrCross)}`}>
-                                            {item.typeOrCross || 'N/A'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="p-4 sm:p-6">
-                                    <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-1 sm:mb-2">{item.wingbandNumber}</h3>
-                                    <p className="text-violet-600 font-semibold mb-2 sm:mb-3 text-sm sm:text-base">{item.breed || 'Unknown Breed'}</p>
-                                    <div className="space-y-1.5 sm:space-y-2 mb-3 sm:mb-4">
-                                        <div className="flex justify-between text-xs sm:text-sm">
-                                            <span className="text-slate-600">Category:</span>
-                                            <span className="font-medium text-slate-900">{item.categoryName || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs sm:text-sm">
-                                            <span className="text-slate-600">Sire:</span>
-                                            <span className="font-medium text-slate-900">{item.sire || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs sm:text-sm">
-                                            <span className="text-slate-600">Dam:</span>
-                                            <span className="font-medium text-slate-900">{item.dam || '-'}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs sm:text-sm pt-1.5 sm:pt-2 border-t border-slate-200">
-                                            <span className="text-slate-600">Win Rate:</span>
-                                            <span className={`font-bold ${getWinRateColor(item.winsLossesWinRate?.split('/')[2])}`}>
-                                                {item.winsLossesWinRate?.split('/')[2]?.trim() || '0%'}
+                                    {item.typeOrCross && (
+                                        <div className="absolute top-2 right-2">
+                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeColor(item.typeOrCross)}`}>
+                                                {item.typeOrCross}
                                             </span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-3 sm:p-4">
+                                    <div className="mb-2">
+                                        <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider">Leg Band / Wing Band</p>
+                                        <h3 className="text-base sm:text-lg font-bold text-slate-900 truncate">{item.wingbandNumber}</h3>
+                                    </div>
+                                    <div className="mb-3">
+                                        <p className="text-slate-600 text-xs font-semibold uppercase tracking-wider">Breed</p>
+                                        <p className="text-violet-600 font-semibold text-xs sm:text-sm truncate">{item.breed || 'Unknown Breed'}</p>
+                                    </div>
+                                    <div className="space-y-1 mb-3 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-900">Pen:</span>
+                                            <span className="font-medium text-slate-900">{item.penNo || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-900">Batch:</span>
+                                            <span className="font-medium text-slate-900">{item.batchNo || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-900">Count:</span>
+                                            <span className="font-medium text-slate-900">{item.batchCount || '-'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-900">Markings:</span>
+                                            <span className="font-medium text-slate-900">{item.markings || '-'}</span>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => handleView(item)} className="flex-1 px-3 py-2 sm:px-4 sm:py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg transition-all text-xs sm:text-sm">
-                                            View Details
+                                        <button onClick={() => handleView(item)} className="flex-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg transition-all text-xs">
+                                            View
                                         </button>
-                                        <button onClick={() => setDeleteConfirm(item)} className="px-3 py-2 sm:px-4 sm:py-2.5 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-lg transition-all">
-                                            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <button onClick={() => setDeleteConfirm(item)} className="px-2 py-1.5 sm:px-3 sm:py-2 bg-red-100 hover:bg-red-200 text-red-700 font-semibold rounded-lg transition-all">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                             </svg>
                                         </button>
@@ -383,8 +376,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
-                        <span className="hidden xs:inline">Add New Bloodline</span>
-                        <span className="xs:hidden">Add New</span>
+                        <span>Add New Bloodline</span>
                     </button>
                 </div>
 
