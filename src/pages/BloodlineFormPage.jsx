@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../config/firebase';
-import { saveBloodline } from '../services/firestoreService';
+import { saveBloodline, getUserBloodlines } from '../services/firestoreService';
 
 function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
     const [currentStep, setCurrentStep] = useState(1);
@@ -36,10 +36,69 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
     const [error, setError] = useState('');
     const [validationErrors, setValidationErrors] = useState({});
     const [isDragging, setIsDragging] = useState(false);
+    const [availableStags, setAvailableStags] = useState([]);
+    const [availableHens, setAvailableHens] = useState([]);
+    const [loadingParents, setLoadingParents] = useState(true);
+    const [showSireDropdown, setShowSireDropdown] = useState(false);
+    const [showDamDropdown, setShowDamDropdown] = useState(false);
+    const [sireSearch, setSireSearch] = useState('');
+    const [damSearch, setDamSearch] = useState('');
 
     useEffect(() => {
         calculateWinRate();
     }, [formData.wins, formData.losses]);
+
+    useEffect(() => {
+        loadParentBloodlines();
+    }, [userId]);
+
+    useEffect(() => {
+        // Initialize search fields with existing values
+        setSireSearch(formData.sire || '');
+        setDamSearch(formData.dam || '');
+    }, [formData.sire, formData.dam]);
+
+    useEffect(() => {
+        // Close dropdowns when clicking outside
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.sire-autocomplete')) {
+                setShowSireDropdown(false);
+            }
+            if (!e.target.closest('.dam-autocomplete')) {
+                setShowDamDropdown(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const loadParentBloodlines = async () => {
+        if (!userId) return;
+
+        setLoadingParents(true);
+        try {
+            const result = await getUserBloodlines(userId);
+            // Changed from result.bloodlines to result.data
+            if (result.success && result.data) {
+                // Filter stags (males)
+                const stags = result.data.filter(
+                    b => b.categoryName === 'Brood Stag' && b.wingbandNumber
+                );
+                // Filter hens (females)
+                const hens = result.data.filter(
+                    b => b.categoryName === 'Brood Hen' && b.wingbandNumber
+                );
+
+                setAvailableStags(stags);
+                setAvailableHens(hens);
+            }
+        } catch (error) {
+            console.error('Error loading parent bloodlines:', error);
+        } finally {
+            setLoadingParents(false);
+        }
+    };
 
     const calculateWinRate = () => {
         const wins = parseInt(formData.wins) || 0;
@@ -88,6 +147,48 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         }
     };
 
+    const handleSireSelect = (wingband) => {
+        setFormData(prev => ({ ...prev, sire: wingband }));
+        setSireSearch(wingband);
+        setShowSireDropdown(false);
+    };
+
+    const handleDamSelect = (wingband) => {
+        setFormData(prev => ({ ...prev, dam: wingband }));
+        setDamSearch(wingband);
+        setShowDamDropdown(false);
+    };
+
+    const handleSireSearchChange = (e) => {
+        const value = e.target.value;
+        setSireSearch(value);
+        setFormData(prev => ({ ...prev, sire: value }));
+        setShowSireDropdown(true);
+    };
+
+    const handleDamSearchChange = (e) => {
+        const value = e.target.value;
+        setDamSearch(value);
+        setFormData(prev => ({ ...prev, dam: value }));
+        setShowDamDropdown(true);
+    };
+
+    const filteredStags = availableStags.filter(stag => {
+        const searchLower = sireSearch.toLowerCase();
+        return (
+            stag.wingbandNumber.toLowerCase().includes(searchLower) ||
+            (stag.breed && stag.breed.toLowerCase().includes(searchLower))
+        );
+    });
+
+    const filteredHens = availableHens.filter(hen => {
+        const searchLower = damSearch.toLowerCase();
+        return (
+            hen.wingbandNumber.toLowerCase().includes(searchLower) ||
+            (hen.breed && hen.breed.toLowerCase().includes(searchLower))
+        );
+    });
+
     const handleDragOver = (e) => {
         e.preventDefault();
         setIsDragging(true);
@@ -115,7 +216,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         }
     };
 
-    // 🆕 NEW: Compress image before storing
     const compressImage = (file, maxWidth = 1200, quality = 0.85) => {
         return new Promise((resolve, reject) => {
             if (!file.type.startsWith('image/')) {
@@ -135,7 +235,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                     let width = img.width;
                     let height = img.height;
 
-                    // Resize if too large (maintain aspect ratio)
                     if (width > maxWidth || height > maxWidth) {
                         if (width > height) {
                             height = Math.round((height * maxWidth) / width);
@@ -152,7 +251,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Convert to blob
                     canvas.toBlob(
                         (blob) => {
                             if (blob) {
@@ -177,7 +275,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         });
     };
 
-    // 🔧 UPDATED: Process with compression
     const processImageFile = async (file) => {
         if (!file.type.startsWith('image/')) {
             setError('Please select a valid image file');
@@ -193,7 +290,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
         setError('Compressing image...');
 
         try {
-            // Compress the image
             const compressedFile = await compressImage(file);
 
             const originalSizeKB = (file.size / 1024).toFixed(2);
@@ -204,7 +300,6 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
             setImageFile(compressedFile);
             setError('');
 
-            // Show preview
             const reader = new FileReader();
             reader.onloadend = () => {
                 setImagePreview(reader.result);
@@ -224,7 +319,7 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
     const uploadImage = async (file, wingbandNumber) => {
         try {
             const timestamp = Date.now();
-            const fileExtension = 'jpg'; // Always jpg after compression
+            const fileExtension = 'jpg';
             const fileName = `bloodlines/${userId}/${wingbandNumber}_${timestamp}.${fileExtension}`;
             const storageRef = ref(storage, fileName);
             await uploadBytes(storageRef, file);
@@ -433,8 +528,12 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                                 </div>
 
                                 <div>
-                                    <label className={labelClass}>Category Name</label>
-                                    <input type="text" name="categoryName" value={formData.categoryName} onChange={handleInputChange} placeholder="e.g., Broadstag, Pullet, Stag" className={inputClass} disabled={isSaving} />
+                                    <label className={labelClass}>Gender</label>
+                                    <select name="categoryName" value={formData.categoryName} onChange={handleInputChange} className={inputClass} disabled={isSaving}>
+                                        <option value="">Select gender</option>
+                                        <option value="Brood Stag">Brood Stag (Male)</option>
+                                        <option value="Brood Hen">Brood Hen (Female)</option>
+                                    </select>
                                 </div>
 
                                 <div>
@@ -508,14 +607,96 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                         <div className="space-y-4 sm:space-y-6">
                             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4 sm:mb-6">Bloodline Details</h2>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                                <div>
-                                    <label className={labelClass}>Brood Stag</label>
-                                    <input type="text" name="sire" value={formData.sire} onChange={handleInputChange} placeholder="Wingband number" className={inputClass} disabled={isSaving} />
+                                {/* Brood Stag with Autocomplete */}
+                                <div className="relative sire-autocomplete">
+                                    <label className={labelClass}>Brood Stag (Father)</label>
+                                    <input
+                                        type="text"
+                                        name="sire"
+                                        value={sireSearch}
+                                        onChange={handleSireSearchChange}
+                                        onFocus={() => setShowSireDropdown(true)}
+                                        placeholder={loadingParents ? "Loading..." : "Type wingband or select..."}
+                                        className={inputClass}
+                                        disabled={isSaving || loadingParents}
+                                        autoComplete="off"
+                                    />
+
+                                    {showSireDropdown && filteredStags.length > 0 && (
+                                        <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                            {filteredStags.map((stag) => (
+                                                <button
+                                                    key={stag.wingbandNumber}
+                                                    type="button"
+                                                    onClick={() => handleSireSelect(stag.wingbandNumber)}
+                                                    className="w-full px-4 py-2 text-left hover:bg-violet-50 flex items-center justify-between gap-2 border-b border-slate-100 last:border-b-0 transition-colors"
+                                                >
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-semibold text-slate-900 text-sm truncate">
+                                                            {stag.wingbandNumber}
+                                                        </div>
+                                                        {stag.breed && (
+                                                            <div className="text-xs text-slate-500 truncate">
+                                                                {stag.breed}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex-shrink-0">
+                                                        Stag
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {availableStags.length > 0 ? `${availableStags.length} stags available` : 'No stags found - you can type manually'}
+                                    </p>
                                 </div>
 
-                                <div>
-                                    <label className={labelClass}>Brood Hen</label>
-                                    <input type="text" name="dam" value={formData.dam} onChange={handleInputChange} placeholder="Wingband number" className={inputClass} disabled={isSaving} />
+                                {/* Brood Hen with Autocomplete */}
+                                <div className="relative dam-autocomplete">
+                                    <label className={labelClass}>Brood Hen (Mother)</label>
+                                    <input
+                                        type="text"
+                                        name="dam"
+                                        value={damSearch}
+                                        onChange={handleDamSearchChange}
+                                        onFocus={() => setShowDamDropdown(true)}
+                                        placeholder={loadingParents ? "Loading..." : "Type wingband or select..."}
+                                        className={inputClass}
+                                        disabled={isSaving || loadingParents}
+                                        autoComplete="off"
+                                    />
+
+                                    {showDamDropdown && filteredHens.length > 0 && (
+                                        <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                            {filteredHens.map((hen) => (
+                                                <button
+                                                    key={hen.wingbandNumber}
+                                                    type="button"
+                                                    onClick={() => handleDamSelect(hen.wingbandNumber)}
+                                                    className="w-full px-4 py-2 text-left hover:bg-violet-50 flex items-center justify-between gap-2 border-b border-slate-100 last:border-b-0 transition-colors"
+                                                >
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-semibold text-slate-900 text-sm truncate">
+                                                            {hen.wingbandNumber}
+                                                        </div>
+                                                        {hen.breed && (
+                                                            <div className="text-xs text-slate-500 truncate">
+                                                                {hen.breed}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded-full flex-shrink-0">
+                                                        Hen
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {availableHens.length > 0 ? `${availableHens.length} hens available` : 'No hens found - you can type manually'}
+                                    </p>
                                 </div>
 
                                 <div>

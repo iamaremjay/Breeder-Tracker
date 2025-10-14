@@ -3,8 +3,7 @@ import { getUserBloodlines, deleteBloodline } from '../services/firestoreService
 
 function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSummary, onLogout }) {
     const [searchQuery, setSearchQuery] = useState('');
-    const [filterType, setFilterType] = useState('All');
-    const [sortBy, setSortBy] = useState('newest');
+    const [searchField, setSearchField] = useState('All');
     const [viewMode, setViewMode] = useState('grid');
     const [bloodlineData, setBloodlineData] = useState([]);
     const [filteredData, setFilteredData] = useState([]);
@@ -20,7 +19,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
 
     useEffect(() => {
         filterAndSortBloodlines();
-    }, [searchQuery, filterType, sortBy, bloodlineData]);
+    }, [searchQuery, searchField, bloodlineData]);
 
     const fetchBloodlines = async () => {
         setIsLoading(true);
@@ -44,41 +43,51 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         let filtered = [...bloodlineData];
 
         if (searchQuery.trim()) {
-            filtered = filtered.filter(item =>
-                item.wingbandNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.breed?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.categoryName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.sire?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.dam?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.penNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.batchNo?.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-        }
+            const query = searchQuery.toLowerCase();
 
-        if (filterType !== 'All') {
-            filtered = filtered.filter(item => item.typeOrCross === filterType);
-        }
-
-        switch (sortBy) {
-            case 'newest':
-                filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-                break;
-            case 'oldest':
-                filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-                break;
-            case 'wingband':
-                filtered.sort((a, b) => (a.wingbandNumber || '').localeCompare(b.wingbandNumber || ''));
-                break;
-            case 'winrate':
-                filtered.sort((a, b) => {
-                    const rateA = parseInt(a.winsLossesWinRate?.split('/')[2]) || 0;
-                    const rateB = parseInt(b.winsLossesWinRate?.split('/')[2]) || 0;
-                    return rateB - rateA;
+            if (searchField === 'All') {
+                filtered = filtered.filter(item =>
+                    item.wingbandNumber?.toLowerCase().includes(query) ||
+                    item.breed?.toLowerCase().includes(query) ||
+                    item.categoryName?.toLowerCase().includes(query) ||
+                    item.sire?.toLowerCase().includes(query) ||
+                    item.dam?.toLowerCase().includes(query) ||
+                    item.penNo?.toLowerCase().includes(query) ||
+                    item.batchNo?.toLowerCase().includes(query) ||
+                    item.markings?.toLowerCase().includes(query) ||
+                    item.batchCount?.toString().toLowerCase().includes(query)
+                );
+            } else {
+                filtered = filtered.filter(item => {
+                    let fieldValue = '';
+                    switch (searchField) {
+                        case 'Leg Band / Wing Band':
+                            fieldValue = item.wingbandNumber || '';
+                            break;
+                        case 'Brood Hen':
+                            fieldValue = item.dam || '';
+                            break;
+                        case 'Brood Stag':
+                            fieldValue = item.sire || '';
+                            break;
+                        case 'Pen No.':
+                            fieldValue = item.penNo || '';
+                            break;
+                        case 'Markings':
+                            fieldValue = item.markings || '';
+                            break;
+                        case 'Batch No.':
+                            fieldValue = item.batchNo || '';
+                            break;
+                        case 'Batch Count':
+                            fieldValue = item.batchCount?.toString() || '';
+                            break;
+                        default:
+                            fieldValue = '';
+                    }
+                    return fieldValue.toLowerCase().includes(query);
                 });
-                break;
-            case 'breed':
-                filtered.sort((a, b) => (a.breed || '').localeCompare(b.breed || ''));
-                break;
+            }
         }
 
         setFilteredData(filtered);
@@ -144,17 +153,9 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         }
     };
 
-    const getWinRateColor = (rate) => {
-        const numRate = parseInt(rate);
-        if (numRate >= 70) return 'text-emerald-600';
-        if (numRate >= 50) return 'text-yellow-600';
-        return 'text-red-600';
-    };
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 lg:p-6 xl:p-8">
             <div className="max-w-7xl mx-auto">
-                {/* Header Section */}
                 <div className="mb-4 sm:mb-6 lg:mb-8 flex justify-between items-start gap-3 sm:gap-4">
                     <div className="flex-1">
                         <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold text-slate-900 mb-1 sm:mb-2">Bloodline History</h1>
@@ -167,7 +168,6 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </button>
                 </div>
 
-                {/* Error Message */}
                 {error && (
                     <div className="mb-4 sm:mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 sm:px-6 sm:py-4 rounded-lg sm:rounded-xl flex items-center gap-2 sm:gap-3 text-xs sm:text-sm">
                         <svg className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -177,49 +177,48 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 )}
 
-                {/* Search and Filter Bar */}
                 <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-3 sm:p-4 lg:p-6 mb-4 sm:mb-6">
                     <div className="flex flex-col gap-3 sm:gap-4">
-                        {/* Search Input */}
-                        <div className="flex-1 relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
-                                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                            <select
+                                value={searchField}
+                                onChange={(e) => setSearchField(e.target.value)}
+                                className="w-full sm:w-56 px-3 py-2.5 sm:px-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
+                            >
+                                <option value="All">All Fields</option>
+                                <option value="Leg Band / Wing Band">Leg Band / Wing Band</option>
+                                <option value="Brood Hen">Brood Hen</option>
+                                <option value="Brood Stag">Brood Stag</option>
+                                <option value="Pen No.">Pen No.</option>
+                                <option value="Markings">Markings</option>
+                                <option value="Batch No.">Batch No.</option>
+                                <option value="Batch Count">Batch Count</option>
+                            </select>
+
+                            <div className="flex-1 relative">
+                                <div className="absolute inset-y-0 left-0 pl-3 sm:pl-4 flex items-center pointer-events-none">
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                </div>
+                                <input
+                                    type="text"
+                                    placeholder={searchField === 'All' ? "Search across all fields..." : `Search by ${searchField}...`}
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+                                />
                             </div>
-                            <input type="text" placeholder="Search by wingband, breed, category, sire, dam, pen no., or batch no..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all" />
                         </div>
 
-                        {/* Filters & Actions */}
                         <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center justify-between">
-                            <div className="flex flex-wrap gap-2 sm:gap-3">
-                                <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="flex-1 min-w-[120px] px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer">
-                                    <option value="All">All Types</option>
-                                    <option value="Cross">Cross</option>
-                                    <option value="Pure">Pure</option>
-                                    <option value="Hybrid">Hybrid</option>
-                                </select>
-
-                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="flex-1 min-w-[140px] px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer">
-                                    <option value="newest">Newest First</option>
-                                    <option value="oldest">Oldest First</option>
-                                    <option value="wingband">By Wingband</option>
-                                    <option value="winrate">By Win Rate</option>
-                                    <option value="breed">By Breed</option>
-                                </select>
-
-                                <div className="flex bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl overflow-hidden">
-                                    <button onClick={() => setViewMode('table')} className={`px-3 py-2 sm:px-4 sm:py-2.5 transition-all ${viewMode === 'table' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-                                        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                        </svg>
-                                    </button>
-                                    <button onClick={() => setViewMode('grid')} className={`px-3 py-2 sm:px-4 sm:py-2.5 transition-all ${viewMode === 'grid' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-                                        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                                        </svg>
-                                    </button>
-                                </div>
+                            <div className="flex bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl overflow-hidden">
+                                <button onClick={() => setViewMode('table')} className={`px-4 py-2 sm:px-6 sm:py-2.5 transition-all font-semibold text-xs sm:text-sm ${viewMode === 'table' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                                    Table View
+                                </button>
+                                <button onClick={() => setViewMode('grid')} className={`px-4 py-2 sm:px-6 sm:py-2.5 transition-all font-semibold text-xs sm:text-sm ${viewMode === 'grid' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                                    Grid View
+                                </button>
                             </div>
 
                             <div className="flex gap-2 sm:gap-3">
@@ -241,27 +240,24 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 </div>
 
-                {/* Loading State */}
                 {isLoading ? (
                     <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center">
                         <div className="inline-block animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-4 border-violet-600 border-t-transparent"></div>
                         <p className="text-slate-600 mt-4 font-semibold text-sm sm:text-base">Loading bloodlines...</p>
                     </div>
                 ) : filteredData.length === 0 ? (
-                    /* Empty State */
                     <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-8 sm:p-12 text-center mb-4 sm:mb-6">
                         <svg className="w-12 h-12 sm:w-16 sm:h-16 text-slate-300 mx-auto mb-3 sm:mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                         </svg>
                         <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-2">No Bloodlines Found</h3>
                         <p className="text-slate-600 mb-4 sm:mb-6 text-xs sm:text-sm">
-                            {searchQuery || filterType !== 'All'
-                                ? 'Try adjusting your search or filter criteria'
+                            {searchQuery
+                                ? 'Try adjusting your search criteria'
                                 : 'Get started by adding your first bloodline'}
                         </p>
                     </div>
                 ) : viewMode === 'table' ? (
-                    /* Table View */
                     <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-4 sm:mb-6">
                         <div className="overflow-x-auto">
                             <table className="w-full" style={{ minWidth: '1000px' }}>
@@ -313,7 +309,6 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         </div>
                     </div>
                 ) : (
-                    /* Grid View - 6 columns */
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
                         {filteredData.map((item, index) => (
                             <div key={item.id || index} className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg transition-all transform hover:scale-105">
@@ -370,7 +365,6 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 )}
 
-                {/* Add New Button */}
                 <div className="flex justify-center">
                     <button onClick={onAddNew} className="px-6 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-lg sm:rounded-xl shadow-lg hover:shadow-violet-500/50 transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
                         <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -380,7 +374,6 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </button>
                 </div>
 
-                {/* Delete Confirmation Modal */}
                 {deleteConfirm && (
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setDeleteConfirm(null)}>
                         <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
