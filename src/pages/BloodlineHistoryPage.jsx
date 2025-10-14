@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { getUserBloodlines, deleteBloodline } from '../services/firestoreService';
+import { getUserBloodlines, deleteBloodline, saveBloodline } from '../services/firestoreService';
 
 function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSummary, onLogout }) {
     const [searchQuery, setSearchQuery] = useState('');
@@ -10,6 +10,10 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importPreview, setImportPreview] = useState([]);
+    const [importError, setImportError] = useState('');
 
     useEffect(() => {
         if (userId) {
@@ -111,7 +115,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                 row.batchCount || '',
                 row.casualty || ''
             ])
-        ].map(row => row.map(cell => `\t${cell}`).join(',')).join('\n');
+        ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
@@ -122,6 +126,153 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const handleImportFile = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!file.name.endsWith('.csv')) {
+            setImportError('Please select a CSV file');
+            return;
+        }
+
+        setImportFile(file);
+        setImportError('');
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const text = event.target.result;
+                const rows = text.split('\n').map(row => {
+                    const cells = [];
+                    let current = '';
+                    let inQuotes = false;
+
+                    for (let i = 0; i < row.length; i++) {
+                        const char = row[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            cells.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    cells.push(current.trim());
+                    return cells;
+                });
+
+                const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
+
+                const preview = dataRows.slice(0, 5).map(row => ({
+                    wingbandNumber: row[0] || '',
+                    dam: row[1] || '',
+                    sire: row[2] || '',
+                    penNo: row[3] || '',
+                    markings: row[4] || '',
+                    batchNo: row[5] || '',
+                    batchCount: row[6] || '',
+                    casualty: row[7] || ''
+                }));
+
+                setImportPreview(preview);
+            } catch (err) {
+                setImportError('Error reading CSV file');
+                console.error('CSV parse error:', err);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleImportConfirm = async () => {
+        if (!importFile) return;
+
+        setImportError('Importing... Please wait.');
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const text = event.target.result;
+                const rows = text.split('\n').map(row => {
+                    const cells = [];
+                    let current = '';
+                    let inQuotes = false;
+
+                    for (let i = 0; i < row.length; i++) {
+                        const char = row[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            cells.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    cells.push(current.trim());
+                    return cells;
+                });
+
+                const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
+
+                let successCount = 0;
+                let errorCount = 0;
+                const errors = [];
+
+                for (const row of dataRows) {
+                    const bloodlineData = {
+                        wingbandNumber: row[0] || '',
+                        dam: row[1] || '',
+                        sire: row[2] || '',
+                        penNo: row[3] || '',
+                        markings: row[4] || '',
+                        batchNo: row[5] || '',
+                        batchCount: row[6] || '',
+                        casualty: row[7] || ''
+                    };
+
+                    if (!bloodlineData.wingbandNumber) {
+                        errorCount++;
+                        errors.push('Row skipped: Missing Wing Band Number');
+                        continue;
+                    }
+
+                    try {
+                        const result = await saveBloodline(userId, bloodlineData);
+                        if (result.success) {
+                            successCount++;
+                        } else {
+                            errorCount++;
+                            errors.push(`${bloodlineData.wingbandNumber}: ${result.error}`);
+                        }
+                    } catch (err) {
+                        errorCount++;
+                        errors.push(`${bloodlineData.wingbandNumber}: ${err.message}`);
+                        console.error('Error importing bloodline:', err);
+                    }
+                }
+
+                let message = `Import complete!\n\nSuccessfully imported: ${successCount}\nFailed: ${errorCount}`;
+                if (errors.length > 0 && errors.length <= 5) {
+                    message += '\n\nErrors:\n' + errors.join('\n');
+                } else if (errors.length > 5) {
+                    message += '\n\nShowing first 5 errors:\n' + errors.slice(0, 5).join('\n');
+                }
+
+                alert(message);
+                setShowImportModal(false);
+                setImportFile(null);
+                setImportPreview([]);
+                setImportError('');
+                fetchBloodlines();
+            } catch (err) {
+                setImportError('Error processing CSV file: ' + err.message);
+                console.error('Import error:', err);
+            }
+        };
+        reader.readAsText(importFile);
     };
 
     const handleView = (bloodline) => {
@@ -234,6 +385,13 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>
                                     <span>Export CSV</span>
+                                </button>
+
+                                <button onClick={() => setShowImportModal(true)} className="flex-1 sm:flex-none px-4 py-2 sm:px-6 sm:py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 text-xs sm:text-sm">
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                    <span>Import CSV</span>
                                 </button>
                             </div>
                         </div>
@@ -392,6 +550,110 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                 </button>
                                 <button onClick={() => handleDelete(deleteConfirm.wingbandNumber)} className="flex-1 px-4 py-2.5 sm:px-6 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all text-sm sm:text-base">
                                     Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {showImportModal && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }}>
+                        <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-3xl w-full shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="mb-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-2xl font-bold text-slate-900">Import Bloodlines from CSV</h3>
+                                    <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Upload a CSV file with the following columns in order:
+                                </p>
+                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+                                    <code className="text-xs text-slate-700 break-all">
+                                        Leg Band/Wing Band, Brood Hen, Brood Stag, Pen No., Markings, Batch No., Batch Count, Casualty
+                                    </code>
+                                </div>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block w-full">
+                                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-500 transition-colors cursor-pointer bg-slate-50">
+                                        <input
+                                            type="file"
+                                            accept=".csv"
+                                            onChange={handleImportFile}
+                                            className="hidden"
+                                        />
+                                        <svg className="w-12 h-12 text-slate-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                        <p className="text-slate-700 font-semibold mb-1">Click to select CSV file</p>
+                                        <p className="text-slate-500 text-sm">or drag and drop</p>
+                                        {importFile && (
+                                            <p className="text-blue-600 font-semibold mt-3">Selected: {importFile.name}</p>
+                                        )}
+                                    </div>
+                                </label>
+                            </div>
+
+                            {importError && (
+                                <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg text-sm">
+                                    {importError}
+                                </div>
+                            )}
+
+                            {importPreview.length > 0 && (
+                                <div className="mb-6">
+                                    <h4 className="text-lg font-bold text-slate-900 mb-3">Preview (First 5 rows)</h4>
+                                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-200">
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Wing Band</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Brood Hen</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Brood Stag</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Pen No.</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Markings</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Batch No.</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Count</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Casualty</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {importPreview.map((row, index) => (
+                                                    <tr key={index} className="hover:bg-slate-50">
+                                                        <td className="px-3 py-2 text-slate-900 font-medium">{row.wingbandNumber || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.dam || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.sire || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.penNo || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.markings || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.batchNo || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.batchCount || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.casualty || '-'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }}
+                                    className="flex-1 px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleImportConfirm}
+                                    disabled={!importFile || importPreview.length === 0}
+                                    className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Import All Data
                                 </button>
                             </div>
                         </div>
