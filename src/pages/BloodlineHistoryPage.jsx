@@ -15,6 +15,10 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const [importPreview, setImportPreview] = useState([]);
     const [importError, setImportError] = useState('');
 
+    // Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(12); // 2 rows of 6 cards for grid, or 12 table rows
+
     useEffect(() => {
         if (userId) {
             fetchBloodlines();
@@ -23,7 +27,19 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
 
     useEffect(() => {
         filterAndSortBloodlines();
+        setCurrentPage(1); // Reset to page 1 when search changes
     }, [searchQuery, searchField, bloodlineData]);
+
+    // Calculate pagination
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+
+    const paginate = (pageNumber) => {
+        setCurrentPage(pageNumber);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     const fetchBloodlines = async () => {
         setIsLoading(true);
@@ -304,6 +320,38 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         }
     };
 
+    // Generate page numbers for pagination
+    const getPageNumbers = () => {
+        const pages = [];
+        const maxVisible = 5;
+
+        if (totalPages <= maxVisible) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            if (currentPage <= 3) {
+                for (let i = 1; i <= 4; i++) pages.push(i);
+                pages.push('...');
+                pages.push(totalPages);
+            } else if (currentPage >= totalPages - 2) {
+                pages.push(1);
+                pages.push('...');
+                for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
+            } else {
+                pages.push(1);
+                pages.push('...');
+                pages.push(currentPage - 1);
+                pages.push(currentPage);
+                pages.push(currentPage + 1);
+                pages.push('...');
+                pages.push(totalPages);
+            }
+        }
+
+        return pages;
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 lg:p-6 xl:p-8">
             <div className="max-w-7xl mx-auto">
@@ -312,6 +360,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold text-slate-900 mb-1 sm:mb-2">Bloodline History</h1>
                         <p className="text-slate-600 text-xs sm:text-sm lg:text-base">
                             {filteredData.length} {filteredData.length === 1 ? 'bloodline' : 'bloodlines'} found
+                            {filteredData.length > 0 && ` • Showing ${indexOfFirstItem + 1}-${Math.min(indexOfLastItem, filteredData.length)} of ${filteredData.length}`}
                         </p>
                     </div>
                     <button onClick={onLogout} className="px-4 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md text-xs sm:text-base whitespace-nowrap">
@@ -433,7 +482,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {filteredData.map((row, index) => (
+                                    {currentItems.map((row, index) => (
                                         <tr key={row.id || index} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap">
                                                 <span className="font-semibold text-slate-900 text-xs sm:text-sm">{row.wingbandNumber}</span>
@@ -468,7 +517,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                        {filteredData.map((item, index) => (
+                        {currentItems.map((item, index) => (
                             <div key={item.id || index} className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg transition-all transform hover:scale-105">
                                 <div className="relative h-32 sm:h-40 bg-gradient-to-br from-violet-500 to-purple-600 overflow-hidden">
                                     <img src={item.image || 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'} alt={item.wingbandNumber} className="w-full h-full object-cover opacity-80" onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'; }} />
@@ -523,6 +572,66 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 )}
 
+                {/* PAGINATION CONTROLS */}
+                {filteredData.length > 0 && totalPages > 1 && (
+                    <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 mb-4 sm:mb-6">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            {/* Page Info */}
+                            <div className="text-sm text-slate-600">
+                                Showing <span className="font-semibold text-slate-900">{indexOfFirstItem + 1}</span> to{' '}
+                                <span className="font-semibold text-slate-900">{Math.min(indexOfLastItem, filteredData.length)}</span> of{' '}
+                                <span className="font-semibold text-slate-900">{filteredData.length}</span> results
+                            </div>
+
+                            {/* Pagination Buttons */}
+                            <div className="flex items-center gap-2">
+                                {/* Previous Button */}
+                                <button
+                                    onClick={() => paginate(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-2 sm:px-4 sm:py-2 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+
+                                {/* Page Numbers */}
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    {getPageNumbers().map((page, index) => (
+                                        page === '...' ? (
+                                            <span key={`ellipsis-${index}`} className="px-3 py-2 text-slate-400 text-sm">...</span>
+                                        ) : (
+                                            <button
+                                                key={page}
+                                                onClick={() => paginate(page)}
+                                                className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-sm ${
+                                                    currentPage === page
+                                                        ? 'bg-violet-600 text-white shadow-md'
+                                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                            >
+                                                {page}
+                                            </button>
+                                        )
+                                    ))}
+                                </div>
+
+                                {/* Next Button */}
+                                <button
+                                    onClick={() => paginate(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-2 sm:px-4 sm:py-2 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex justify-center">
                     <button onClick={onAddNew} className="px-6 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-lg sm:rounded-xl shadow-lg hover:shadow-violet-500/50 transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
                         <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -532,6 +641,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </button>
                 </div>
 
+                {/* DELETE CONFIRMATION MODAL */}
                 {deleteConfirm && (
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setDeleteConfirm(null)}>
                         <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
@@ -556,6 +666,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 )}
 
+                {/* IMPORT MODAL - (keeping your original import modal code here) */}
                 {showImportModal && (
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }}>
                         <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-3xl w-full shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
