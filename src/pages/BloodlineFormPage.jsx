@@ -359,11 +359,15 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="flex flex-col gap-3 sm:gap-4 mb-4 sm:mb-6">
-                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full">
-                        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900">
+                    <div className="flex items-center justify-between gap-2 sm:gap-3">
+                        <h1 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold text-slate-900 flex-1 min-w-0">
                             {bloodline ? 'Edit Bloodline' : 'Add New Bloodline'}
                         </h1>
-                        <button onClick={handleLogout} disabled={isSaving} className="px-6 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base">
+                        <button
+                            onClick={handleLogout}
+                            disabled={isSaving}
+                            className="px-4 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-base whitespace-nowrap"
+                        >
                             Logout
                         </button>
                     </div>
@@ -450,7 +454,15 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
 
                                 <div>
                                     <label className={labelClass}>Hatch Date</label>
-                                    <input type="date" name="hatchDate" value={formData.hatchDate} onChange={handleInputChange} className={inputClass} disabled={isSaving} />
+                                    <input
+                                        type="date"
+                                        name="hatchDate"
+                                        value={formData.hatchDate}
+                                        onChange={handleInputChange}
+                                        className={inputClass}
+                                        disabled={isSaving}
+                                        style={{ textAlign: 'left' }}
+                                    />
                                 </div>
 
                                 <div className="sm:col-span-2">
