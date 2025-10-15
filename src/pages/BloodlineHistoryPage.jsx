@@ -27,7 +27,6 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
 
     useEffect(() => {
         filterAndSortBloodlines();
-        setCurrentPage(1); // Reset to page 1 when search changes
     }, [searchQuery, searchField, bloodlineData]);
 
     // Calculate pagination
@@ -63,23 +62,32 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         let filtered = [...bloodlineData];
 
         if (searchQuery.trim()) {
-            const query = searchQuery.toLowerCase();
+            const query = searchQuery.toLowerCase().trim();
 
             if (searchField === 'All') {
-                filtered = filtered.filter(item =>
-                    item.wingbandNumber?.toLowerCase().includes(query) ||
-                    item.breed?.toLowerCase().includes(query) ||
-                    item.categoryName?.toLowerCase().includes(query) ||
-                    item.sire?.toLowerCase().includes(query) ||
-                    item.dam?.toLowerCase().includes(query) ||
-                    item.penNo?.toLowerCase().includes(query) ||
-                    item.batchNo?.toLowerCase().includes(query) ||
-                    item.markings?.toLowerCase().includes(query) ||
-                    item.batchCount?.toString().toLowerCase().includes(query)
-                );
+                // For "All Fields": Use partial matching
+                filtered = filtered.filter(item => {
+                    const searchableFields = [
+                        item.wingbandNumber,
+                        item.breed,
+                        item.categoryName,
+                        item.sire,
+                        item.dam,
+                        item.penNo,
+                        item.batchNo,
+                        item.markings,
+                        item.batchCount?.toString()
+                    ];
+
+                    return searchableFields.some(field =>
+                        field && field.toString().toLowerCase().includes(query)
+                    );
+                });
             } else {
+                // For specific fields: Use EXACT matching
                 filtered = filtered.filter(item => {
                     let fieldValue = '';
+
                     switch (searchField) {
                         case 'Leg Band / Wing Band':
                             fieldValue = item.wingbandNumber || '';
@@ -105,12 +113,22 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         default:
                             fieldValue = '';
                     }
-                    return fieldValue.toLowerCase().includes(query);
+
+                    // EXACT MATCH for specific fields
+                    return fieldValue.toLowerCase() === query;
                 });
             }
         }
 
         setFilteredData(filtered);
+        setCurrentPage(1); // Reset to page 1 when filters change
+    };
+
+    const handleReset = () => {
+        setSearchQuery('');
+        setSearchField('All');
+        setCurrentPage(1);
+        // This will trigger the useEffect and show all data
     };
 
     const handleExport = () => {
@@ -180,20 +198,54 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     return cells;
                 });
 
+                // Get headers from first row
+                const headers = rows[0].map(h => h.toLowerCase().trim());
+
+                // Create a mapping of column names to indices
+                const columnMap = {};
+                headers.forEach((header, index) => {
+                    // Normalize header names to match your field names
+                    if (header.includes('wing') || header.includes('band') || header.includes('leg')) {
+                        columnMap.wingbandNumber = index;
+                    } else if (header.includes('hen') || header.includes('dam')) {
+                        columnMap.dam = index;
+                    } else if (header.includes('stag') || header.includes('sire')) {
+                        columnMap.sire = index;
+                    } else if (header.includes('pen')) {
+                        columnMap.penNo = index;
+                    } else if (header.includes('marking')) {
+                        columnMap.markings = index;
+                    } else if (header.includes('batch') && header.includes('no')) {
+                        columnMap.batchNo = index;
+                    } else if (header.includes('batch') && header.includes('count')) {
+                        columnMap.batchCount = index;
+                    } else if (header.includes('casualty')) {
+                        columnMap.casualty = index;
+                    }
+                });
+
+                // Validate that we found the required columns
+                if (columnMap.wingbandNumber === undefined) {
+                    setImportError('CSV must have a Wing Band / Leg Band column');
+                    return;
+                }
+
                 const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
 
                 const preview = dataRows.slice(0, 5).map(row => ({
-                    wingbandNumber: row[0] || '',
-                    dam: row[1] || '',
-                    sire: row[2] || '',
-                    penNo: row[3] || '',
-                    markings: row[4] || '',
-                    batchNo: row[5] || '',
-                    batchCount: row[6] || '',
-                    casualty: row[7] || ''
+                    wingbandNumber: row[columnMap.wingbandNumber] || '',
+                    dam: row[columnMap.dam] || '',
+                    sire: row[columnMap.sire] || '',
+                    penNo: row[columnMap.penNo] || '',
+                    markings: row[columnMap.markings] || '',
+                    batchNo: row[columnMap.batchNo] || '',
+                    batchCount: row[columnMap.batchCount] || '',
+                    casualty: row[columnMap.casualty] || ''
                 }));
 
                 setImportPreview(preview);
+                // Store columnMap for use in handleImportConfirm
+                setImportFile({ file, columnMap });
             } catch (err) {
                 setImportError('Error reading CSV file');
                 console.error('CSV parse error:', err);
@@ -231,6 +283,29 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     return cells;
                 });
 
+                // Get column mapping
+                const headers = rows[0].map(h => h.toLowerCase().trim());
+                const columnMap = {};
+                headers.forEach((header, index) => {
+                    if (header.includes('wing') || header.includes('band') || header.includes('leg')) {
+                        columnMap.wingbandNumber = index;
+                    } else if (header.includes('hen') || header.includes('dam')) {
+                        columnMap.dam = index;
+                    } else if (header.includes('stag') || header.includes('sire')) {
+                        columnMap.sire = index;
+                    } else if (header.includes('pen')) {
+                        columnMap.penNo = index;
+                    } else if (header.includes('marking')) {
+                        columnMap.markings = index;
+                    } else if (header.includes('batch') && header.includes('no')) {
+                        columnMap.batchNo = index;
+                    } else if (header.includes('batch') && header.includes('count')) {
+                        columnMap.batchCount = index;
+                    } else if (header.includes('casualty')) {
+                        columnMap.casualty = index;
+                    }
+                });
+
                 const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
 
                 let successCount = 0;
@@ -238,15 +313,16 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                 const errors = [];
 
                 for (const row of dataRows) {
+                    // Use columnMap instead of hardcoded indices
                     const bloodlineData = {
-                        wingbandNumber: row[0] || '',
-                        dam: row[1] || '',
-                        sire: row[2] || '',
-                        penNo: row[3] || '',
-                        markings: row[4] || '',
-                        batchNo: row[5] || '',
-                        batchCount: row[6] || '',
-                        casualty: row[7] || ''
+                        wingbandNumber: row[columnMap.wingbandNumber] || '',
+                        dam: row[columnMap.dam] || '',
+                        sire: row[columnMap.sire] || '',
+                        penNo: row[columnMap.penNo] || '',
+                        markings: row[columnMap.markings] || '',
+                        batchNo: row[columnMap.batchNo] || '',
+                        batchCount: row[columnMap.batchCount] || '',
+                        casualty: row[columnMap.casualty] || ''
                     };
 
                     if (!bloodlineData.wingbandNumber) {
@@ -288,7 +364,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                 console.error('Import error:', err);
             }
         };
-        reader.readAsText(importFile);
+        reader.readAsText(importFile.file || importFile);
     };
 
     const handleView = (bloodline) => {
@@ -409,6 +485,20 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
                                 />
                             </div>
+
+                            {/* RESET BUTTON - Only shows when there's a search or filter active */}
+                            {/*{(searchQuery || searchField !== 'All') && (*/}
+                                <button
+                                    onClick={handleReset}
+                                    className="px-4 py-2.5 sm:px-6 sm:py-3 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 text-xs sm:text-sm whitespace-nowrap"
+                                    title="Reset filters"
+                                >
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    <span>Reset</span>
+                                </button>
+                           {/* )}*/}
                         </div>
 
                         <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center justify-between">
