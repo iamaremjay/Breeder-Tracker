@@ -1,21 +1,36 @@
 ﻿import { db } from '../config/firebase'
 import { doc, setDoc, getDoc, collection, getDocs, deleteDoc } from 'firebase/firestore'
 
+// Helper function to remove undefined values from an object
+const sanitizeData = (obj) => {
+    const sanitized = {};
+    Object.keys(obj).forEach(key => {
+        const value = obj[key];
+        // Only include non-undefined values
+        if (value !== undefined) {
+            sanitized[key] = value;
+        }
+    });
+    return sanitized;
+};
+
 // Save user profile to Firestore
 export const saveUserProfile = async (userId, userData) => {
     try {
-        await setDoc(doc(db, 'users', userId), {
+        const sanitizedUserData = sanitizeData({
             username: userData.username,
             email: userData.email,
             createdAt: new Date(),
             ...userData
-        })
+        });
+
+        await setDoc(doc(db, 'users', userId), sanitizedUserData);
 
         await setDoc(doc(db, 'usernames', userData.username.toLowerCase()), {
             userId: userId,
             email: userData.email,
             createdAt: new Date()
-        })
+        });
 
         return { success: true }
     } catch (error) {
@@ -76,7 +91,7 @@ export const checkUsernameAvailable = async (username) => {
     }
 }
 
-// Save bloodline to Firestore - WITH DETAILED LOGGING
+// Save bloodline to Firestore - WITH SANITIZATION
 export const saveBloodline = async (userId, bloodlineData) => {
     console.log('📝 saveBloodline called');
     console.log('   userId:', userId);
@@ -90,12 +105,13 @@ export const saveBloodline = async (userId, bloodlineData) => {
         const docRef = doc(db, 'users', userId, 'bloodlines', bloodlineData.wingbandNumber);
         console.log('📄 Document reference created');
 
-        const dataToSave = {
+        // Sanitize data to remove undefined values
+        const dataToSave = sanitizeData({
             ...bloodlineData,
-            createdAt: new Date(),
+            createdAt: bloodlineData.createdAt || new Date(),
             updatedAt: new Date()
-        };
-        console.log('💾 Data to save:', dataToSave);
+        });
+        console.log('💾 Data to save (sanitized):', dataToSave);
 
         console.log('⏳ Calling setDoc...');
         await setDoc(docRef, dataToSave);

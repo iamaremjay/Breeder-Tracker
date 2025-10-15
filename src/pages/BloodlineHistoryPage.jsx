@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { getUserBloodlines, deleteBloodline } from '../services/firestoreService';
+import { getUserBloodlines, deleteBloodline, saveBloodline } from '../services/firestoreService';
 
 function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSummary, onLogout }) {
     const [searchQuery, setSearchQuery] = useState('');
@@ -10,6 +10,14 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importFile, setImportFile] = useState(null);
+    const [importPreview, setImportPreview] = useState([]);
+    const [importError, setImportError] = useState('');
+
+    // Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(12); // 2 rows of 6 cards for grid, or 12 table rows
 
     useEffect(() => {
         if (userId) {
@@ -20,6 +28,17 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
     useEffect(() => {
         filterAndSortBloodlines();
     }, [searchQuery, searchField, bloodlineData]);
+
+    // Calculate pagination
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+
+    const paginate = (pageNumber) => {
+        setCurrentPage(pageNumber);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     const fetchBloodlines = async () => {
         setIsLoading(true);
@@ -43,23 +62,32 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         let filtered = [...bloodlineData];
 
         if (searchQuery.trim()) {
-            const query = searchQuery.toLowerCase();
+            const query = searchQuery.toLowerCase().trim();
 
             if (searchField === 'All') {
-                filtered = filtered.filter(item =>
-                    item.wingbandNumber?.toLowerCase().includes(query) ||
-                    item.breed?.toLowerCase().includes(query) ||
-                    item.categoryName?.toLowerCase().includes(query) ||
-                    item.sire?.toLowerCase().includes(query) ||
-                    item.dam?.toLowerCase().includes(query) ||
-                    item.penNo?.toLowerCase().includes(query) ||
-                    item.batchNo?.toLowerCase().includes(query) ||
-                    item.markings?.toLowerCase().includes(query) ||
-                    item.batchCount?.toString().toLowerCase().includes(query)
-                );
+                // For "All Fields": Use partial matching
+                filtered = filtered.filter(item => {
+                    const searchableFields = [
+                        item.wingbandNumber,
+                        item.breed,
+                        item.categoryName,
+                        item.sire,
+                        item.dam,
+                        item.penNo,
+                        item.batchNo,
+                        item.markings,
+                        item.batchCount?.toString()
+                    ];
+
+                    return searchableFields.some(field =>
+                        field && field.toString().toLowerCase().includes(query)
+                    );
+                });
             } else {
+                // For specific fields: Use EXACT matching
                 filtered = filtered.filter(item => {
                     let fieldValue = '';
+
                     switch (searchField) {
                         case 'Leg Band / Wing Band':
                             fieldValue = item.wingbandNumber || '';
@@ -85,12 +113,22 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         default:
                             fieldValue = '';
                     }
-                    return fieldValue.toLowerCase().includes(query);
+
+                    // EXACT MATCH for specific fields
+                    return fieldValue.toLowerCase() === query;
                 });
             }
         }
 
         setFilteredData(filtered);
+        setCurrentPage(1); // Reset to page 1 when filters change
+    };
+
+    const handleReset = () => {
+        setSearchQuery('');
+        setSearchField('All');
+        setCurrentPage(1);
+        // This will trigger the useEffect and show all data
     };
 
     const handleExport = () => {
@@ -111,7 +149,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                 row.batchCount || '',
                 row.casualty || ''
             ])
-        ].map(row => row.map(cell => `\t${cell}`).join(',')).join('\n');
+        ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
@@ -122,6 +160,211 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const handleImportFile = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!file.name.endsWith('.csv')) {
+            setImportError('Please select a CSV file');
+            return;
+        }
+
+        setImportFile(file);
+        setImportError('');
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const text = event.target.result;
+                const rows = text.split('\n').map(row => {
+                    const cells = [];
+                    let current = '';
+                    let inQuotes = false;
+
+                    for (let i = 0; i < row.length; i++) {
+                        const char = row[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            cells.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    cells.push(current.trim());
+                    return cells;
+                });
+
+                // Get headers from first row
+                const headers = rows[0].map(h => h.toLowerCase().trim());
+
+                // Create a mapping of column names to indices
+                const columnMap = {};
+                headers.forEach((header, index) => {
+                    // Normalize header names to match your field names
+                    if (header.includes('wing') || header.includes('band') || header.includes('leg')) {
+                        columnMap.wingbandNumber = index;
+                    } else if (header.includes('hen') || header.includes('dam')) {
+                        columnMap.dam = index;
+                    } else if (header.includes('stag') || header.includes('sire')) {
+                        columnMap.sire = index;
+                    } else if (header.includes('pen')) {
+                        columnMap.penNo = index;
+                    } else if (header.includes('marking')) {
+                        columnMap.markings = index;
+                    } else if (header.includes('batch') && header.includes('no')) {
+                        columnMap.batchNo = index;
+                    } else if (header.includes('batch') && header.includes('count')) {
+                        columnMap.batchCount = index;
+                    } else if (header.includes('casualty')) {
+                        columnMap.casualty = index;
+                    }
+                });
+
+                // Validate that we found the required columns
+                if (columnMap.wingbandNumber === undefined) {
+                    setImportError('CSV must have a Wing Band / Leg Band column');
+                    return;
+                }
+
+                const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
+
+                const preview = dataRows.slice(0, 5).map(row => ({
+                    wingbandNumber: row[columnMap.wingbandNumber] || '',
+                    dam: row[columnMap.dam] || '',
+                    sire: row[columnMap.sire] || '',
+                    penNo: row[columnMap.penNo] || '',
+                    markings: row[columnMap.markings] || '',
+                    batchNo: row[columnMap.batchNo] || '',
+                    batchCount: row[columnMap.batchCount] || '',
+                    casualty: row[columnMap.casualty] || ''
+                }));
+
+                setImportPreview(preview);
+                // Store columnMap for use in handleImportConfirm
+                setImportFile({ file, columnMap });
+            } catch (err) {
+                setImportError('Error reading CSV file');
+                console.error('CSV parse error:', err);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    const handleImportConfirm = async () => {
+        if (!importFile) return;
+
+        setImportError('Importing... Please wait.');
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const text = event.target.result;
+                const rows = text.split('\n').map(row => {
+                    const cells = [];
+                    let current = '';
+                    let inQuotes = false;
+
+                    for (let i = 0; i < row.length; i++) {
+                        const char = row[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            cells.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    cells.push(current.trim());
+                    return cells;
+                });
+
+                // Get column mapping
+                const headers = rows[0].map(h => h.toLowerCase().trim());
+                const columnMap = {};
+                headers.forEach((header, index) => {
+                    if (header.includes('wing') || header.includes('band') || header.includes('leg')) {
+                        columnMap.wingbandNumber = index;
+                    } else if (header.includes('hen') || header.includes('dam')) {
+                        columnMap.dam = index;
+                    } else if (header.includes('stag') || header.includes('sire')) {
+                        columnMap.sire = index;
+                    } else if (header.includes('pen')) {
+                        columnMap.penNo = index;
+                    } else if (header.includes('marking')) {
+                        columnMap.markings = index;
+                    } else if (header.includes('batch') && header.includes('no')) {
+                        columnMap.batchNo = index;
+                    } else if (header.includes('batch') && header.includes('count')) {
+                        columnMap.batchCount = index;
+                    } else if (header.includes('casualty')) {
+                        columnMap.casualty = index;
+                    }
+                });
+
+                const dataRows = rows.slice(1).filter(row => row.some(cell => cell));
+
+                let successCount = 0;
+                let errorCount = 0;
+                const errors = [];
+
+                for (const row of dataRows) {
+                    // Use columnMap instead of hardcoded indices
+                    const bloodlineData = {
+                        wingbandNumber: row[columnMap.wingbandNumber] || '',
+                        dam: row[columnMap.dam] || '',
+                        sire: row[columnMap.sire] || '',
+                        penNo: row[columnMap.penNo] || '',
+                        markings: row[columnMap.markings] || '',
+                        batchNo: row[columnMap.batchNo] || '',
+                        batchCount: row[columnMap.batchCount] || '',
+                        casualty: row[columnMap.casualty] || ''
+                    };
+
+                    if (!bloodlineData.wingbandNumber) {
+                        errorCount++;
+                        errors.push('Row skipped: Missing Wing Band Number');
+                        continue;
+                    }
+
+                    try {
+                        const result = await saveBloodline(userId, bloodlineData);
+                        if (result.success) {
+                            successCount++;
+                        } else {
+                            errorCount++;
+                            errors.push(`${bloodlineData.wingbandNumber}: ${result.error}`);
+                        }
+                    } catch (err) {
+                        errorCount++;
+                        errors.push(`${bloodlineData.wingbandNumber}: ${err.message}`);
+                        console.error('Error importing bloodline:', err);
+                    }
+                }
+
+                let message = `Import complete!\n\nSuccessfully imported: ${successCount}\nFailed: ${errorCount}`;
+                if (errors.length > 0 && errors.length <= 5) {
+                    message += '\n\nErrors:\n' + errors.join('\n');
+                } else if (errors.length > 5) {
+                    message += '\n\nShowing first 5 errors:\n' + errors.slice(0, 5).join('\n');
+                }
+
+                alert(message);
+                setShowImportModal(false);
+                setImportFile(null);
+                setImportPreview([]);
+                setImportError('');
+                fetchBloodlines();
+            } catch (err) {
+                setImportError('Error processing CSV file: ' + err.message);
+                console.error('Import error:', err);
+            }
+        };
+        reader.readAsText(importFile.file || importFile);
     };
 
     const handleView = (bloodline) => {
@@ -153,6 +396,38 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
         }
     };
 
+    // Generate page numbers for pagination
+    const getPageNumbers = () => {
+        const pages = [];
+        const maxVisible = 5;
+
+        if (totalPages <= maxVisible) {
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            if (currentPage <= 3) {
+                for (let i = 1; i <= 4; i++) pages.push(i);
+                pages.push('...');
+                pages.push(totalPages);
+            } else if (currentPage >= totalPages - 2) {
+                pages.push(1);
+                pages.push('...');
+                for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
+            } else {
+                pages.push(1);
+                pages.push('...');
+                pages.push(currentPage - 1);
+                pages.push(currentPage);
+                pages.push(currentPage + 1);
+                pages.push('...');
+                pages.push(totalPages);
+            }
+        }
+
+        return pages;
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 lg:p-6 xl:p-8">
             <div className="max-w-7xl mx-auto">
@@ -161,6 +436,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                         <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold text-slate-900 mb-1 sm:mb-2">Bloodline History</h1>
                         <p className="text-slate-600 text-xs sm:text-sm lg:text-base">
                             {filteredData.length} {filteredData.length === 1 ? 'bloodline' : 'bloodlines'} found
+                            {filteredData.length > 0 && ` • Showing ${indexOfFirstItem + 1}-${Math.min(indexOfLastItem, filteredData.length)} of ${filteredData.length}`}
                         </p>
                     </div>
                     <button onClick={onLogout} className="px-4 sm:px-8 py-2 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-md text-xs sm:text-base whitespace-nowrap">
@@ -209,6 +485,20 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     className="w-full pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-3 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
                                 />
                             </div>
+
+                            {/* RESET BUTTON - Only shows when there's a search or filter active */}
+                            {/*{(searchQuery || searchField !== 'All') && (*/}
+                                <button
+                                    onClick={handleReset}
+                                    className="px-4 py-2.5 sm:px-6 sm:py-3 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 text-xs sm:text-sm whitespace-nowrap"
+                                    title="Reset filters"
+                                >
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    <span>Reset</span>
+                                </button>
+                           {/* )}*/}
                         </div>
 
                         <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-stretch sm:items-center justify-between">
@@ -234,6 +524,13 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>
                                     <span>Export CSV</span>
+                                </button>
+
+                                <button onClick={() => setShowImportModal(true)} className="flex-1 sm:flex-none px-4 py-2 sm:px-6 sm:py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center gap-2 text-xs sm:text-sm">
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                    <span>Import CSV</span>
                                 </button>
                             </div>
                         </div>
@@ -275,7 +572,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {filteredData.map((row, index) => (
+                                    {currentItems.map((row, index) => (
                                         <tr key={row.id || index} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-3 py-3 sm:px-6 sm:py-4 whitespace-nowrap">
                                                 <span className="font-semibold text-slate-900 text-xs sm:text-sm">{row.wingbandNumber}</span>
@@ -310,7 +607,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                        {filteredData.map((item, index) => (
+                        {currentItems.map((item, index) => (
                             <div key={item.id || index} className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg transition-all transform hover:scale-105">
                                 <div className="relative h-32 sm:h-40 bg-gradient-to-br from-violet-500 to-purple-600 overflow-hidden">
                                     <img src={item.image || 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'} alt={item.wingbandNumber} className="w-full h-full object-cover opacity-80" onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?w=400&q=80'; }} />
@@ -365,6 +662,66 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </div>
                 )}
 
+                {/* PAGINATION CONTROLS */}
+                {filteredData.length > 0 && totalPages > 1 && (
+                    <div className="bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 mb-4 sm:mb-6">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            {/* Page Info */}
+                            <div className="text-sm text-slate-600">
+                                Showing <span className="font-semibold text-slate-900">{indexOfFirstItem + 1}</span> to{' '}
+                                <span className="font-semibold text-slate-900">{Math.min(indexOfLastItem, filteredData.length)}</span> of{' '}
+                                <span className="font-semibold text-slate-900">{filteredData.length}</span> results
+                            </div>
+
+                            {/* Pagination Buttons */}
+                            <div className="flex items-center gap-2">
+                                {/* Previous Button */}
+                                <button
+                                    onClick={() => paginate(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-2 sm:px-4 sm:py-2 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+
+                                {/* Page Numbers */}
+                                <div className="flex items-center gap-1 sm:gap-2">
+                                    {getPageNumbers().map((page, index) => (
+                                        page === '...' ? (
+                                            <span key={`ellipsis-${index}`} className="px-3 py-2 text-slate-400 text-sm">...</span>
+                                        ) : (
+                                            <button
+                                                key={page}
+                                                onClick={() => paginate(page)}
+                                                className={`px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-medium transition-all text-sm ${
+                                                    currentPage === page
+                                                        ? 'bg-violet-600 text-white shadow-md'
+                                                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                                                }`}
+                                            >
+                                                {page}
+                                            </button>
+                                        )
+                                    ))}
+                                </div>
+
+                                {/* Next Button */}
+                                <button
+                                    onClick={() => paginate(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-2 sm:px-4 sm:py-2 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex justify-center">
                     <button onClick={onAddNew} className="px-6 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold rounded-lg sm:rounded-xl shadow-lg hover:shadow-violet-500/50 transition-all transform hover:scale-105 active:scale-95 flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
                         <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -374,6 +731,7 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                     </button>
                 </div>
 
+                {/* DELETE CONFIRMATION MODAL */}
                 {deleteConfirm && (
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => setDeleteConfirm(null)}>
                         <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
@@ -392,6 +750,111 @@ function BloodlineHistoryPage({ userId, navigate, onViewDetails, onAddNew, onSum
                                 </button>
                                 <button onClick={() => handleDelete(deleteConfirm.wingbandNumber)} className="flex-1 px-4 py-2.5 sm:px-6 sm:py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg sm:rounded-xl transition-all text-sm sm:text-base">
                                     Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* IMPORT MODAL - (keeping your original import modal code here) */}
+                {showImportModal && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }}>
+                        <div className="bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 max-w-3xl w-full shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="mb-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-2xl font-bold text-slate-900">Import Bloodlines from CSV</h3>
+                                    <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <p className="text-slate-600 text-sm mb-4">
+                                    Upload a CSV file with the following columns in order:
+                                </p>
+                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-4">
+                                    <code className="text-xs text-slate-700 break-all">
+                                        Leg Band/Wing Band, Brood Hen, Brood Stag, Pen No., Markings, Batch No., Batch Count, Casualty
+                                    </code>
+                                </div>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block w-full">
+                                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-500 transition-colors cursor-pointer bg-slate-50">
+                                        <input
+                                            type="file"
+                                            accept=".csv"
+                                            onChange={handleImportFile}
+                                            className="hidden"
+                                        />
+                                        <svg className="w-12 h-12 text-slate-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                        <p className="text-slate-700 font-semibold mb-1">Click to select CSV file</p>
+                                        <p className="text-slate-500 text-sm">or drag and drop</p>
+                                        {importFile && (
+                                            <p className="text-blue-600 font-semibold mt-3">Selected: {importFile.name}</p>
+                                        )}
+                                    </div>
+                                </label>
+                            </div>
+
+                            {importError && (
+                                <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg text-sm">
+                                    {importError}
+                                </div>
+                            )}
+
+                            {importPreview.length > 0 && (
+                                <div className="mb-6">
+                                    <h4 className="text-lg font-bold text-slate-900 mb-3">Preview (First 5 rows)</h4>
+                                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-200">
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Wing Band</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Brood Hen</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Brood Stag</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Pen No.</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Markings</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Batch No.</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Count</th>
+                                                    <th className="px-3 py-2 text-left text-xs font-bold text-slate-900">Casualty</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {importPreview.map((row, index) => (
+                                                    <tr key={index} className="hover:bg-slate-50">
+                                                        <td className="px-3 py-2 text-slate-900 font-medium">{row.wingbandNumber || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.dam || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.sire || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.penNo || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.markings || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.batchNo || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.batchCount || '-'}</td>
+                                                        <td className="px-3 py-2 text-slate-700">{row.casualty || '-'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportError(''); }}
+                                    className="flex-1 px-6 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded-xl transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleImportConfirm}
+                                    disabled={!importFile || importPreview.length === 0}
+                                    className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Import All Data
                                 </button>
                             </div>
                         </div>
