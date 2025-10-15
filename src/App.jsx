@@ -6,6 +6,7 @@ import BloodlineHistoryPage from './pages/BloodlineHistoryPage'
 import BloodlineDetailsPage from './pages/BloodlineDetailsPage'
 import BloodlineFormPage from './pages/BloodlineFormPage'
 import SummaryPage from './pages/SummaryPage'
+import Footer from './Footer'
 
 function App() {
     const [currentPage, setCurrentPage] = useState('history')
@@ -189,6 +190,7 @@ function App() {
     return (
         <div className="App">
             {renderPage()}
+            {isAuthenticated && <Footer />}
         </div>
     )
 }
