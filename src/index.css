@@ -1,38 +1,77 @@
-﻿/* ✅ Universal mobile date input fix */
-@media (max-width: 768px) {
+﻿/* ✅ Enhanced Universal Mobile Date Input Fix */
+input[type="date"],
+input[type="date"]:focus,
+input[type="date"]:active {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+}
+
+    /* Remove calendar icon on all devices */
     input[type="date"]::-webkit-calendar-picker-indicator {
         opacity: 0 !important;
+        pointer-events: none !important;
+        position: absolute !important;
         display: none !important;
+        width: 0 !important;
+        height: 0 !important;
     }
 
+    /* Force left alignment on date value */
+    input[type="date"]::-webkit-date-and-time-value {
+        text-align: left !important;
+    }
+
+    /* Force left alignment on date edit field */
+    input[type="date"]::-webkit-datetime-edit {
+        text-align: left !important;
+        padding-left: 0 !important;
+    }
+
+/* Mobile devices (all) */
+@media (max-width: 768px) {
+    input[type="date"],
+    .date-input-mobile {
+        font-size: 16px !important; /* Prevents iOS zoom */
+        min-height: 44px !important; /* iOS touch target minimum */
+        height: 44px !important;
+        line-height: 1.5 !important;
+        padding: 0.75rem !important;
+        text-align: left !important;
+        display: block !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        background-color: #f8fafc !important;
+        cursor: pointer !important;
+    }
+}
+
+/* 🍎 iPhone/iOS specific (includes Safari and in-app browsers like FB Messenger) */
+@supports (-webkit-touch-callout: none) {
     input[type="date"] {
         font-size: 16px !important;
-        min-height: 35px !important;
-        max-height: 35px !important;
+        min-height: 44px !important;
         height: 44px !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-        line-height: 1.25 !important;
         padding: 0.75rem !important;
-        -webkit-appearance: none !important;
-        -moz-appearance: none !important;
-        appearance: none !important;
-        text-align: left !important; /* Force left alignment on all devices */
+        text-align: left !important;
     }
+
+        input[type="date"]::-webkit-date-and-time-value {
+            text-align: left !important;
+            padding-left: 0 !important;
+            margin-left: 0 !important;
+        }
 }
 
-/* 🍎 iPhone/iOS specific fix (Facebook Messenger webview) */
-@media (max-width: 768px) and (-webkit-min-device-pixel-ratio: 2) {
+/* 🤖 Android specific */
+@media (max-width: 768px) and (pointer: coarse) {
     input[type="date"] {
-        height: 35px !important;
-        line-height: 35px !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-        text-align: left !important; /* Override iPhone's center alignment */
+        line-height: 1.5 !important;
+        vertical-align: middle !important;
     }
 }
 
+/* Footer Styles */
 .footer {
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     color: #ffffff;
@@ -163,7 +202,7 @@
         color: rgba(184, 193, 236, 0.4);
     }
 
-/* Responsive Design */
+/* Responsive Design for Footer */
 @media (max-width: 768px) {
     .footer-content {
         grid-template-columns: 1fr;

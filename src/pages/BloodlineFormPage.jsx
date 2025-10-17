@@ -558,9 +558,8 @@ function BloodlineFormPage({ bloodline, onBack, onSave, onLogout, userId }) {
                                         name="hatchDate"
                                         value={formData.hatchDate}
                                         onChange={handleInputChange}
-                                        className={inputClass}
+                                        className={`${inputClass} date-input-mobile`}
                                         disabled={isSaving}
-                                        style={{ textAlign: 'left' }}
                                     />
                                 </div>
 
